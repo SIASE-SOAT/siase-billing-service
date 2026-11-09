@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: siase-billing-service
+  namespace: siase
+  labels:
+    app: siase-billing-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: siase-billing-service
+  template:
+    metadata:
+      labels:
+        app: siase-billing-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8092"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      containers:
+        - name: siase-billing-service
+          image: ECR_REGISTRY/ECR_REPOSITORY:IMAGE_TAG
+          ports:
+            - containerPort: 8082
+              name: http
+            - containerPort: 8092
+              name: management
+          envFrom:
+            - configMapRef:
+                name: siase-billing-config
+            - secretRef:
+                name: siase-billing-secret
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8092
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8092
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: siase-billing-service
+  namespace: siase
+spec:
+  selector:
+    app: siase-billing-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8082
+    - name: management
+      port: 8092
+      targetPort: 8092
+  type: LoadBalancer
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: siase-billing-service-hpa
+  namespace: siase
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: siase-billing-service
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
