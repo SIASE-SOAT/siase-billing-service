@@ -11,6 +11,6 @@ import static io.cucumber.junit.platform.engine.Constants.*;
 @IncludeEngines("cucumber")
 @SelectClasspathResource("features")
 @ConfigurationParameter(key = PLUGIN_PROPERTY_NAME, value = "pretty, html:target/cucumber-reports/report.html")
-@ConfigurationParameter(key = GLUE_PROPERTY_NAME, value = "com.siase.billing.bdd")
+@ConfigurationParameter(key = GLUE_PROPERTY_NAME, value = "br.com.fiap.siase.bdd")
 public class CucumberTest {
 }
