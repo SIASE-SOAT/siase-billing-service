@@ -1,64 +1,60 @@
+server:
+  port: 8082
+
 spring:
   application:
     name: siase-billing-service
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:siase_billing_db}
-    username: ${DB_USER:siase_user}
+    username: ${DB_USER:siase_billing_user}
     password: ${DB_PASSWORD:siase_pass}
-    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: none
-    show-sql: false
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-    open-in-view: false
+      ddl-auto: validate
   flyway:
     enabled: true
-    locations: classpath:db/migration
-    baseline-on-migrate: true
+  springdoc:
+    swagger-ui:
+      path: /api/swagger-ui.html
+    api-docs:
+      path: /api/v3/api-docs
 
-server:
-  port: ${SERVER_PORT:8082}
-  servlet:
-    context-path: /api
-
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-
-jwt:
-  secret: ${JWT_SECRET:bXlTdXBlclNlY3JldEtleUZvckpXVEF1dGhlbnRpY2F0aW9uMjAyNA==}
-
-aws:
-  region: ${AWS_REGION:us-east-1}
+app:
+  aws:
+    region: ${AWS_REGION:us-east-1}
+    endpoint: ${AWS_ENDPOINT:}
   sqs:
-    queue-url-billing: ${SQS_BILLING_URL}
-    queue-url-os-updates: ${SQS_OS_UPDATES_URL}
-    queue-url-execution: ${SQS_EXECUTION_URL}
-    poll-interval-ms: ${SQS_POLL_INTERVAL_MS:5000}
-
-mercadopago:
-  access-token: ${MERCADOPAGO_ACCESS_TOKEN}
-  notification-url: ${BILLING_PUBLIC_URL}/api/billing/webhook/mercadopago
-  success-url: ${PORTAL_URL:http://localhost:4200}/pagamento/sucesso
-  failure-url: ${PORTAL_URL:http://localhost:4200}/pagamento/falha
+    billing-url: ${SQS_BILLING_URL:http://localhost:4566/000000000000/siase-billing-queue}
+    os-updates-url: ${SQS_OS_UPDATES_URL:http://localhost:4566/000000000000/siase-os-updates-queue}
+    poll-delay-ms: ${SQS_POLL_DELAY_MS:5000}
+  billing:
+    public-url: ${BILLING_PUBLIC_URL:http://localhost:8082}
+  mercadopago:
+    access-token: ${MERCADOPAGO_ACCESS_TOKEN:}
+    mock: ${MERCADOPAGO_MOCK:true}    # true em dev — desligar em prod
+  jwt:
+    secret: ${JWT_SECRET:dev-secret-change-me}
 
 management:
-  server:
-    port: ${MANAGEMENT_SERVER_PORT:8092}
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,prometheus
+      base-path: /actuator
   endpoint:
     health:
       probes:
         enabled: true
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+      environment: ${ENVIRONMENT:homolog}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
 
 logging:
   level:
-    br.com.fiap.siase: INFO
+    root: info

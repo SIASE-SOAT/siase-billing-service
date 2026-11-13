@@ -1,0 +1,182 @@
+name: CI/CD — siase-billing-service
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  SERVICE_NAME: siase-billing-service
+  IMAGE_NAME: siase-billing-service
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Build + testes unitários + BDD + quality gate JaCoCo (80%)
+  # ---------------------------------------------------------------------------
+  test:
+    name: Build & Tests (unit + BDD + cobertura)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: mvn verify (unitários + Cucumber + JaCoCo gate 80%)
+        run: mvn -B clean verify
+
+      - name: Publicar relatório JaCoCo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+
+      - name: Publicar relatório Cucumber
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cucumber-report
+          path: target/cucumber-reports/
+
+  # ---------------------------------------------------------------------------
+  # 2. Análise estática no SonarCloud (org SIASE-SOAT)
+  #    Pré-requisitos:
+  #    - Projeto criado em sonarcloud.io na org SIASE-SOAT
+  #    - Secret SONAR_TOKEN no repo
+  #    - sonar.organization / sonar.projectKey no pom.xml ou sonar-project.properties
+  # ---------------------------------------------------------------------------
+  sonar:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Cache SonarCloud
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: sonar-${{ env.SERVICE_NAME }}
+
+      - name: Análise SonarCloud
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: mvn -B verify sonar:sonar -DskipTests
+
+  # ---------------------------------------------------------------------------
+  # 3. Docker build + push (GHCR)
+  #    Alternativa ECR comentada abaixo — usar se o cluster EKS puxa do ECR.
+  # ---------------------------------------------------------------------------
+  docker:
+    name: Docker build & push
+    runs-on: ubuntu-latest
+    needs: [test, sonar]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Metadados da imagem
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # --- Alternativa: push para ECR ---
+      # - uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     aws-region: us-east-1
+      #     role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE }}
+      # - uses: aws-actions/amazon-ecr-login@v2
+      # - run: |
+      #     docker build -t $ECR_REGISTRY/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+      #     docker push $ECR_REGISTRY/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  # ---------------------------------------------------------------------------
+  # 4. Deploy no EKS (cluster da Fase 3) — homolog em push na main,
+  #    prod via environment com aprovação manual
+  # ---------------------------------------------------------------------------
+  deploy-homolog:
+    name: Deploy EKS (homolog)
+    runs-on: ubuntu-latest
+    needs: docker
+    environment: homolog
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Kubeconfig do EKS
+        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region us-east-1
+
+      - name: Aplicar manifestos k8s
+        run: |
+          kubectl apply -f k8s/ -n ${{ secrets.K8S_NAMESPACE }}
+          kubectl set image deployment/${{ env.SERVICE_NAME }} \
+            ${{ env.SERVICE_NAME }}=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -n ${{ secrets.K8S_NAMESPACE }} || true
+          kubectl rollout status deployment/${{ env.SERVICE_NAME }} -n ${{ secrets.K8S_NAMESPACE }} --timeout=180s
+
+  deploy-prod:
+    name: Deploy EKS (prod)
+    runs-on: ubuntu-latest
+    needs: deploy-homolog
+    environment:
+      name: prod          # configurar required reviewers em Settings → Environments
+      url: https://github.com/${{ github.repository }}/actions
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Kubeconfig do EKS
+        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region us-east-1
+
+      - name: Aplicar manifestos k8s (prod)
+        run: |
+          kubectl apply -f k8s/prod/ -n ${{ secrets.K8S_NAMESPACE_PROD }} || kubectl apply -f k8s/ -n ${{ secrets.K8S_NAMESPACE_PROD }}
+          kubectl set image deployment/${{ env.SERVICE_NAME }} \
+            ${{ env.SERVICE_NAME }}=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -n ${{ secrets.K8S_NAMESPACE_PROD }} || true
+          kubectl rollout status deployment/${{ env.SERVICE_NAME }} -n ${{ secrets.K8S_NAMESPACE_PROD }} --timeout=180s

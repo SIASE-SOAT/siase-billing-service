@@ -1,77 +1,73 @@
-# siase-billing-service
+# siase-billing-service — SIASE Fase 4
 
-> SIASE — Fase 4 | Microsserviço de Orçamentos e Pagamentos
+Microsserviço de **Orçamentos e Pagamentos**: gera orçamento a partir de OS
+criada, integra com **Mercado Pago** para o link de pagamento e confirma o
+pagamento via webhook. Participa do **Saga coreografado via AWS SQS**
+(ver `docs/adr/ADR-001`).
 
-## Descrição
+## Stack
 
-Responsável por gerar orçamentos a partir de OS criadas, integrar com o **Mercado Pago** para processamento de pagamentos e publicar eventos de confirmação via **AWS SQS** (Saga Coreografado).
+| Tecnologia | Versão | Uso |
+|---|---|---|
+| Java | 17 | LTS |
+| Spring Boot | 3.2.4 | Web + JPA + Security (JWT resource server) |
+| PostgreSQL | 16 (RDS) | Banco próprio (`siase_billing_db`) |
+| AWS SQS | AWS SDK v2 | Mensageria do Saga |
+| Mercado Pago | API REST | Preferência de pagamento + webhook + reembolso |
+| Flyway | — | Migrations |
+| Cucumber | 7.15 | BDD |
+| JaCoCo | 0.8.11 | Cobertura mínima 80% |
 
-## Responsabilidades
-
-- Consumir evento `OS_CRIADA` → gerar orçamento + preferência Mercado Pago
-- Receber webhook do Mercado Pago → confirmar pagamento
-- Publicar `PAGAMENTO_CONFIRMADO` → OS Service avança para ENTREGUE
-- Compensação: cancelar orçamento/pagamento ao receber `OS_CANCELADA`
-
-## Fluxo de Pagamento
+## Fluxo de pagamento
 
 ```
-OS_CRIADA (SQS) → GerarOrcamentoUC → Mercado Pago API
-                                           │
-                                    link de pagamento
-                                           │
-                                    cliente paga
-                                           │
-                              Mercado Pago Webhook
-                                           │
-                              ProcessarWebhookUC
-                                           │
-                              PAGAMENTO_CONFIRMADO (SQS)
-                                           │
-                              OS Service → ENTREGUE
+OS_CRIADA (SQS) → GerarOrcamentoUC → preferência Mercado Pago
+                                        │
+                              link de pagamento (init_point)
+                                        │
+                              cliente paga
+                                        │
+                              webhook MP → ProcessarWebhookUC
+                                        │
+                              PAGAMENTO_CONFIRMADO (SQS) → OS: ENTREGUE
 ```
 
-## Tecnologias
+Compensação: `OS_CANCELADA`/`ORCAMENTO_RECUSADO` → cancela orçamento e
+reembolsa pagamento confirmado → `PAGAMENTO_CANCELADO`.
 
-| Tecnologia | Versão |
-|---|---|
-| Java | 17 |
-| Spring Boot | 3.2.4 |
-| PostgreSQL | 16 (RDS) |
-| Mercado Pago SDK | 2.1.24 |
-| AWS SQS | SDK v2 |
-| Cucumber | 7.15 (BDD) |
-| JaCoCo | 80% mínimo |
+## Filas SQS
+
+| Fila | Direção | Eventos |
+|---|---|---|
+| `siase-*-billing-queue` | consome | OS_CRIADA, OS_CANCELADA, ORCAMENTO_RECUSADO |
+| `siase-*-os-updates-queue` | produz | ORCAMENTO_GERADO, PAGAMENTO_CONFIRMADO, PAGAMENTO_CANCELADO |
 
 ## Endpoints
 
 | Método | Endpoint | Auth | Descrição |
 |---|---|---|---|
-| GET | `/api/ordens/{osId}/orcamento` | JWT | Consultar orçamento |
-| GET | `/api/ordens/{osId}/pagamento` | JWT | Consultar pagamento |
+| GET | `/api/ordens/{osId}/orcamento` | JWT | Orçamento da OS |
+| GET | `/api/ordens/{osId}/pagamento` | JWT | Pagamento da OS |
 | GET | `/api/pagamentos/{id}` | JWT | Pagamento por ID |
-| POST | `/api/billing/webhook/mercadopago` | — | Webhook MP |
+| POST | `/api/billing/webhook/mercadopago` | — | Webhook MP (IPN + formato novo) |
 
-## Variáveis de Ambiente
+Swagger UI: `/api/swagger-ui.html`
 
-| Variável | Descrição |
-|---|---|
-| `DB_HOST` | Host RDS PostgreSQL |
-| `DB_NAME` | `siase_billing_db` |
-| `MERCADOPAGO_ACCESS_TOKEN` | Token de acesso MP |
-| `BILLING_PUBLIC_URL` | URL pública para webhook MP |
-| `SQS_BILLING_URL` | Fila de entrada (OS_CRIADA) |
-| `SQS_OS_UPDATES_URL` | Fila de saída (PAGAMENTO_CONFIRMADO) |
+## Variáveis de ambiente
+
+`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`,
+`AWS_REGION`, `SQS_BILLING_URL`, `SQS_OS_UPDATES_URL`,
+`MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_MOCK` (true em dev),
+`BILLING_PUBLIC_URL` (URL pública para o webhook MP), `ENVIRONMENT`.
 
 ## Testes
 
 ```bash
 mvn clean verify
-open target/site/jacoco/index.html
-open target/cucumber-reports/report.html
+# Cobertura: target/site/jacoco/index.html (gate 80%)
+# BDD:       target/cucumber-reports/report.html
 ```
 
 ## Documentação
 
-- [ADR-001 — Microsserviços e Saga](docs/adr/ADR-001-billing-saga.md)
-- [RFC-001 — Integração Mercado Pago](docs/rfc/RFC-001-mercado-pago.md)
+- `docs/adr/ADR-001` — Saga coreografado + decisões Mercado Pago
