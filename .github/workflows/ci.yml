@@ -128,39 +128,15 @@ jobs:
       #     docker push $ECR_REGISTRY/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
   # ---------------------------------------------------------------------------
-  # 4. Deploy no EKS (cluster da Fase 3) — homolog em push na main,
-  #    prod via environment com aprovação manual
+  # 4. Deploy no EKS (cluster da Fase 3)
   # ---------------------------------------------------------------------------
-  deploy-homolog:
-    name: Deploy EKS (homolog)
-    runs-on: ubuntu-latest
-    needs: docker
-    environment: homolog
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: us-east-1
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-
-      - name: Kubeconfig do EKS
-        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region us-east-1
-
-      - name: Aplicar manifestos k8s
-        run: |
-          kubectl apply -f k8s/ -n ${{ secrets.K8S_NAMESPACE }}
-          kubectl set image deployment/${{ env.SERVICE_NAME }} \
-            ${{ env.SERVICE_NAME }}=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            -n ${{ secrets.K8S_NAMESPACE }} || true
-          kubectl rollout status deployment/${{ env.SERVICE_NAME }} -n ${{ secrets.K8S_NAMESPACE }} --timeout=180s
 
   deploy-prod:
     name: Deploy EKS (prod)
     runs-on: ubuntu-latest
-    needs: deploy-homolog
+    needs: docker
     environment:
-      name: prod          # configurar required reviewers em Settings → Environments
+      name: production   [
       url: https://github.com/${{ github.repository }}/actions
     steps:
       - uses: actions/checkout@v4
@@ -175,7 +151,7 @@ jobs:
 
       - name: Aplicar manifestos k8s (prod)
         run: |
-          kubectl apply -f k8s/prod/ -n ${{ secrets.K8S_NAMESPACE_PROD }} || kubectl apply -f k8s/ -n ${{ secrets.K8S_NAMESPACE_PROD }}
+          kubectl apply -f k8s/ -n ${{ secrets.K8S_NAMESPACE_PROD }}
           kubectl set image deployment/${{ env.SERVICE_NAME }} \
             ${{ env.SERVICE_NAME }}=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             -n ${{ secrets.K8S_NAMESPACE_PROD }} || true
