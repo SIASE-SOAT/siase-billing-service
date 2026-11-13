@@ -74,7 +74,7 @@ jobs:
       - name: Análise SonarCloud
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -DskipTests
+        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -DskipTests
 
   # ---------------------------------------------------------------------------
   # 3. Docker build + push (GHCR)
