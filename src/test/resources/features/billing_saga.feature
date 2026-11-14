@@ -4,10 +4,10 @@ Funcionalidade: Billing no Saga coreografado
   Quero reagir aos eventos da OS e publicar atualizações
   Para completar o fluxo do Saga com o Mercado Pago
 
-  Cenário: OS criada gera orçamento com link de pagamento
+  Cenário: OS criada gera orçamento com QR Code Pix
     Dado um evento "OS_CRIADA" recebido
     Quando o billing processa o evento
-    Então um orçamento é gerado com preferência Mercado Pago
+    Então um orçamento é gerado com QR Code Pix Mercado Pago
     E o evento "ORCAMENTO_GERADO" é publicado para o os-service
 
   Cenário: Pagamento aprovado no Mercado Pago confirma a OS

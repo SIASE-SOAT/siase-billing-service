@@ -13,6 +13,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 
 
+/**
+ * Consumer OS_CRIADA: gera orçamento + preferência Mercado Pago e publica
+ * ORCAMENTO_GERADO para o os-service avançar para AGUARDANDO_APROVACAO.
+ *
+ * Valor do orçamento: na ausência de uma fonte de preços própria, derivamos um
+ * valor base por OS — em produção viria dos itens da OS no payload do evento.
+ */
 @Service
 public class GerarOrcamentoUseCase {
 
@@ -46,15 +53,16 @@ public class GerarOrcamentoUseCase {
         Orcamento orcamento = orcamentos.salvar(
                 Orcamento.criar(evento.osId(), evento.numeroOs(), valor));
 
-        MercadoPagoPort.Preferencia pref =
-                mercadoPago.criarPreferencia(orcamento, valor, callbackUrl);
-        orcamento.registrarPreferencia(pref.id(), pref.linkPagamento());
+        MercadoPagoPort.PagamentoPix pagamento =
+                mercadoPago.criarPagamentoPix(orcamento, valor, callbackUrl);
+        orcamento.registrarPreferencia(pagamento.mpPaymentId(), pagamento.qrCode());
         orcamentos.salvar(orcamento);
 
         EventoBilling update = EventoBilling.de(EventoBilling.ORCAMENTO_GERADO,
                 orcamento.getOsId(), orcamento.getNumeroOs(),
-                "{\"orcamentoId\":\"" + orcamento.getId() + "\",\"linkPagamento\":\""
-                        + pref.linkPagamento() + "\"}");
+                "{\"orcamentoId\":\"" + orcamento.getId()
+                        + "\",\"qrCodePix\":\"" + pagamento.qrCode()
+                        + "\",\"qrCodePixBase64\":\"" + pagamento.qrCodeBase64() + "\"}");
         publicador.publicarParaOs(update);
         contar(EventoBilling.ORCAMENTO_GERADO);
         return orcamento;
@@ -76,3 +84,4 @@ public class GerarOrcamentoUseCase {
                 "servico", "billing", "evento", evento, "direcao", "produzido").increment();
     }
 }
+

@@ -1,20 +1,31 @@
-# ADR-001 — Integração com Mercado Pago e Webhook
+# ADR-001 — Saga coreografado e integração Mercado Pago
 
-**Status:** Aceito  
-**Data:** 2025-01
+## Status
+Aceito
 
 ## Decisão
+O billing participa do **Saga coreografado via SQS** (ver ADR-001 do
+os-service): consome `billing-queue` e publica atualizações em
+`os-updates-queue`. Pagamentos são processados pelo **Mercado Pago** via
+**Pix com QR Code dinâmico** (`POST /v1/payments` com `payment_method_id=pix`,
+retornando `qr_code` — Pix copia e cola — e `qr_code_base64`) e webhook de
+confirmação.
 
-Usar o **Mercado Pago SDK Java** para criar preferências de pagamento e processar webhooks.
+## Compensação
+- `OS_CANCELADA` ou `ORCAMENTO_RECUSADO` → cancela o orçamento; se o pagamento
+  já foi confirmado, emite reembolso no MP e publica `PAGAMENTO_CANCELADO`.
 
-## Fluxo de Webhook
-
-O Mercado Pago envia notificações POST para `/api/billing/webhook/mercadopago` com o `payment_id`. O serviço consulta o status via API e confirma o pagamento apenas quando `status == "approved"`.
-
-## Idempotência
-
-O campo `mercado_pago_payment_id` é UNIQUE no banco. Processar o mesmo webhook duas vezes não cria duplicatas.
-
-## Segurança
-
-O endpoint de webhook é público (sem JWT) pois o Mercado Pago não envia tokens. A validação é feita consultando o pagamento diretamente na API do MP com o access token.
+## Pontos de desenho
+- **Idempotência**: `OS_CRIADA` duplicado não gera segundo orçamento
+  (constraint única em `os_id`); webhook reenviado não confirma duas vezes
+  (lookup por `mp_payment_id`).
+- **external_reference = osId**: o pagamento Pix carrega o osId, que volta no
+  pagamento consultado — é como o webhook localiza o orçamento certo.
+- **Idempotência na criação**: header `X-Idempotency-Key = orcamentoId` evita
+  cobrança duplicada em reenvios.
+- **Mock em dev**: `MERCADOPAGO_MOCK=true` simula pagamento/consulta, o que
+  permite demonstrar o fluxo completo sem credenciais (desligado em prod).
+- **Ressalva de segurança**: o webhook aceita POST público (sem JWT) — em
+  produção deve-se validar a assinatura `x-signature` do Mercado Pago
+  (HMAC com o secret do webhook) antes de processar. Registrado como
+  melhoria no backlog.

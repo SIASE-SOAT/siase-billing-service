@@ -19,8 +19,8 @@ import java.time.Duration;
 /**
  * Integração com a API REST do Mercado Pago (java.net.http).
  *
- * - criarPreferencia → POST /checkout/preferences (external_reference = osId,
- *   notification_url = webhook do serviço)
+ * - criarPagamentoPix → POST /v1/payments com payment_method_id=pix
+ *   (retorna QR Code dinâmico em point_of_interaction.transaction_data)
  * - consultarPagamento → GET /v1/payments/{id}
  * - reembolsar → POST /v1/payments/{id}/refunds
  *
@@ -48,29 +48,35 @@ public class MercadoPagoAdapter implements MercadoPagoPort {
     }
 
     @Override
-    public Preferencia criarPreferencia(Orcamento orcamento, BigDecimal valor, String callbackUrl) {
+    public PagamentoPix criarPagamentoPix(Orcamento orcamento, BigDecimal valor, String callbackUrl) {
         if (mock) {
-            String id = "pref-mock-" + orcamento.getId();
-            return new Preferencia(id, "https://www.mercadopago.com.br/checkout/mock/" + id);
+            String id = "pay-mock-" + orcamento.getId();
+            return new PagamentoPix(id,
+                    "000201mock-pix-copia-e-cola-" + id,
+                    "bW9jay1xci1jb2Rl");
         }
         try {
             String body = mapper.writeValueAsString(java.util.Map.of(
+                    "transaction_amount", valor,
+                    "description", "Ordem de Serviço " + orcamento.getNumeroOs(),
+                    "payment_method_id", "pix",
                     "external_reference", orcamento.getOsId().toString(),
                     "notification_url", callbackUrl + "/api/billing/webhook/mercadopago",
-                    "items", java.util.List.of(java.util.Map.of(
-                            "title", "Ordem de Serviço " + orcamento.getNumeroOs(),
-                            "quantity", 1,
-                            "unit_price", valor,
-                            "currency_id", "BRL"))));
+                    "payer", java.util.Map.of("email", "cliente@siase.local")));
 
-            JsonNode resp = chamar(HttpRequest.newBuilder(URI.create(BASE + "/checkout/preferences"))
+            JsonNode resp = chamar(HttpRequest.newBuilder(URI.create(BASE + "/v1/payments"))
                     .header("Authorization", "Bearer " + accessToken)
                     .header("Content-Type", "application/json")
+                    .header("X-Idempotency-Key", orcamento.getId().toString())
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build());
-            return new Preferencia(resp.get("id").asText(), resp.get("init_point").asText());
+
+            JsonNode txData = resp.path("point_of_interaction").path("transaction_data");
+            return new PagamentoPix(resp.get("id").asText(),
+                    txData.path("qr_code").asText(null),
+                    txData.path("qr_code_base64").asText(null));
         } catch (Exception e) {
-            throw new IllegalStateException("Falha ao criar preferência no Mercado Pago", e);
+            throw new IllegalStateException("Falha ao criar pagamento Pix no Mercado Pago", e);
         }
     }
 
@@ -125,3 +131,4 @@ public class MercadoPagoAdapter implements MercadoPagoPort {
         return mapper.readTree(resp.body());
     }
 }
+

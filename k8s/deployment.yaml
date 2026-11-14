@@ -18,15 +18,14 @@ spec:
         prometheus.io/port: "8082"
         prometheus.io/path: "/actuator/prometheus"
     spec:
-      serviceAccountName: siase-billing-service   # IRSA: policy siase-<env>-billing-service-messaging
       containers:
         - name: siase-billing-service
-          image: ghcr.io/siase-soat/siase-billing-service:latest
+          image: ECR_REGISTRY/IMAGE_NAME:IMAGE_TAG
           ports:
             - containerPort: 8082
           env:
             - name: ENVIRONMENT
-              value: "homolog"
+              value: "prod"
             - name: DB_HOST
               valueFrom: { secretKeyRef: { name: siase-billing-service-db, key: host } }
             - name: DB_PORT

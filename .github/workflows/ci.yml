@@ -9,6 +9,7 @@ on:
 env:
   SERVICE_NAME: siase-billing-service
   IMAGE_NAME: siase-billing-service
+  DB_KEY: billing
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -77,58 +78,36 @@ jobs:
         run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -DskipTests
 
   # ---------------------------------------------------------------------------
-  # 3. Docker build + push (GHCR)
-  #    Alternativa ECR comentada abaixo — usar se o cluster EKS puxa do ECR.
+  # 3. Docker build + push para o ECR da conta Learner Lab
   # ---------------------------------------------------------------------------
   docker:
-    name: Docker build & push
+    name: Docker build & push (ECR)
     runs-on: ubuntu-latest
     needs: [test, sonar]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Login no GHCR
-        uses: docker/login-action@v3
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Metadados da imagem
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build & push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # --- Alternativa: push para ECR ---
-      # - uses: aws-actions/configure-aws-credentials@v4
-      #   with:
-      #     aws-region: us-east-1
-      #     role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE }}
-      # - uses: aws-actions/amazon-ecr-login@v2
-      # - run: |
-      #     docker build -t $ECR_REGISTRY/${{ env.IMAGE_NAME }}:${{ github.sha }} .
-      #     docker push $ECR_REGISTRY/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker build -t "$REGISTRY/${IMAGE_NAME}:${GITHUB_SHA}" .
+          docker tag "$REGISTRY/${IMAGE_NAME}:${GITHUB_SHA}" "$REGISTRY/${IMAGE_NAME}:latest"
+          docker push "$REGISTRY/${IMAGE_NAME}:${GITHUB_SHA}"
+          docker push "$REGISTRY/${IMAGE_NAME}:latest"
 
   # ---------------------------------------------------------------------------
-  # 4. Deploy no EKS (cluster da Fase 3)
+  # 4. Deploy no EKS (cluster da Fase 3) — prod via environment com aprovação manual
   # ---------------------------------------------------------------------------
 
   deploy-prod:
@@ -136,23 +115,41 @@ jobs:
     runs-on: ubuntu-latest
     needs: docker
     environment:
-      name: production   [
+      name: production   # mesmo environment da Fase 3 — configurar required reviewers
       url: https://github.com/${{ github.repository }}/actions
     steps:
       - uses: actions/checkout@v4
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: us-east-1
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-
-      - name: Kubeconfig do EKS
-        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region us-east-1
-
-      - name: Aplicar manifestos k8s (prod)
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Configurar EKS e secrets do servico
+        env:
+          NAMESPACE: ${{ secrets.K8S_NAMESPACE_PROD }}
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
-          kubectl apply -f k8s/ -n ${{ secrets.K8S_NAMESPACE_PROD }}
-          kubectl set image deployment/${{ env.SERVICE_NAME }} \
-            ${{ env.SERVICE_NAME }}=ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            -n ${{ secrets.K8S_NAMESPACE_PROD }} || true
-          kubectl rollout status deployment/${{ env.SERVICE_NAME }} -n ${{ secrets.K8S_NAMESPACE_PROD }} --timeout=180s
+          set -euo pipefail
+          aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region us-east-1
+          db_secret_arn=$(aws ssm get-parameter --name "/siase/production/${DB_KEY}/db-secret-arn" --query 'Parameter.Value' --output text)
+          db_host=$(aws ssm get-parameter --name "/siase/production/${DB_KEY}/db-endpoint" --query 'Parameter.Value' --output text)
+          db_name=$(aws ssm get-parameter --name "/siase/production/${DB_KEY}/db-name" --query 'Parameter.Value' --output text)
+          db_json=$(aws secretsmanager get-secret-value --secret-id "$db_secret_arn" --query SecretString --output text)
+          db_user=$(jq -er .username <<<"$db_json")
+          db_password=$(jq -er .password <<<"$db_json")
+          jwt_json=$(aws secretsmanager get-secret-value --secret-id siase/production/jwt --query SecretString --output text)
+          jwt_secret=$(jq -er .secret <<<"$jwt_json")
+          kubectl create secret generic "${SERVICE_NAME}-db" -n "$NAMESPACE" --from-literal=host="$db_host" --from-literal=username="$db_user" --from-literal=password="$db_password" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic siase-jwt -n "$NAMESPACE" --from-literal=secret="$jwt_secret" --dry-run=client -o yaml | kubectl apply -f -
+          mp_json=$(aws secretsmanager get-secret-value --secret-id siase/production/mercado-pago --query SecretString --output text)
+          mp_token=$(jq -er .accessToken <<<"$mp_json")
+          kubectl create secret generic siase-mercadopago -n "$NAMESPACE" --from-literal=access-token="$mp_token" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create configmap siase-sqs-queues -n "$NAMESPACE" --from-literal=billing-url="$(aws sqs get-queue-url --queue-name siase-prod-billing-queue --query QueueUrl --output text)" --from-literal=execution-url="$(aws sqs get-queue-url --queue-name siase-prod-execution-queue --query QueueUrl --output text)" --from-literal=os-eventos-url="$(aws sqs get-queue-url --queue-name siase-prod-os-eventos --query QueueUrl --output text)" --from-literal=os-updates-url="$(aws sqs get-queue-url --queue-name siase-prod-os-updates-queue --query QueueUrl --output text)" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create configmap siase-dynamodb-tables -n "$NAMESPACE" --from-literal=execution-fila=siase-prod-execution-fila --from-literal=os-eventos-historico=siase-prod-os-eventos-historico --dry-run=client -o yaml | kubectl apply -f -
+          sed -i "s#ECR_REGISTRY#${REGISTRY}#g; s#IMAGE_NAME#${IMAGE_NAME}#g; s#IMAGE_TAG#${GITHUB_SHA}#g" k8s/deployment.yaml
+          kubectl apply -f k8s/ -n "$NAMESPACE"
+          kubectl rollout status deployment/${SERVICE_NAME} -n "$NAMESPACE" --timeout=180s
