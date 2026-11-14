@@ -14,7 +14,7 @@
     <groupId>br.com.fiap</groupId>
     <artifactId>siase-billing-service</artifactId>
     <version>1.0.0</version>
-    <name>siase-billing-service</name>
+    <name>SIASE - Billing Service</name>
     <description>Microsserviço de Orçamentos e Pagamentos — SIASE Fase 4</description>
 
     <properties>
