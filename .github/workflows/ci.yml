@@ -83,8 +83,10 @@ jobs:
   docker:
     name: Docker build & push (ECR)
     runs-on: ubuntu-latest
-    needs: [test, sonar]
+    needs: [ test, sonar ]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
     permissions:
       contents: read
     steps:
