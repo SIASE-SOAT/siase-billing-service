@@ -42,21 +42,20 @@ public class ProcessarWebhookMercadoPagoUseCase {
     public void executar(String mpPaymentId) {
         // idempotência: webhook pode ser reenviado pelo MP
         if (pagamentos.buscarPorMpPaymentId(mpPaymentId).isPresent()) {
-            log.info("Pagamento {} já processado", mpPaymentId);
+            log.info("Webhook de pagamento já processado");
             return;
         }
 
         MercadoPagoPort.StatusMp mp = mercadoPago.consultarPagamento(mpPaymentId);
         if (mp == null || mp.externalReference() == null
                 || !"approved".equalsIgnoreCase(mp.status())) {
-            log.info("Pagamento {} não aprovado (status: {})", mpPaymentId,
-                    mp != null ? mp.status() : "inexistente");
+            log.info("Webhook ignorado porque o pagamento não está aprovado ou não foi encontrado");
             return;
         }
 
         Orcamento orcamento = orcamentos.buscarPorOsId(osIdDoPagamento(mp))
                 .orElseThrow(() -> new IllegalStateException(
-                        "Orçamento não encontrado para pagamento " + mpPaymentId));
+                        "Orçamento não encontrado para pagamento aprovado"));
 
         orcamento.confirmarPagamento();
         orcamentos.salvar(orcamento);

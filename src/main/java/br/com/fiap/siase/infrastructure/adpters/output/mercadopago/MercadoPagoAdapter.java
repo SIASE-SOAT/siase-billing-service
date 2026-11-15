@@ -75,6 +75,9 @@ public class MercadoPagoAdapter implements MercadoPagoPort {
             return new PagamentoPix(resp.get("id").asText(),
                     txData.path("qr_code").asText(null),
                     txData.path("qr_code_base64").asText(null));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Criação de pagamento Pix interrompida", e);
         } catch (Exception e) {
             throw new IllegalStateException("Falha ao criar pagamento Pix no Mercado Pago", e);
         }
@@ -101,6 +104,9 @@ public class MercadoPagoAdapter implements MercadoPagoPort {
                     j.hasNonNull("external_reference") ? j.get("external_reference").asText() : null);
         } catch (IllegalStateException e) {
             throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Consulta de pagamento no Mercado Pago interrompida", e);
         } catch (Exception e) {
             throw new IllegalStateException("Falha ao consultar pagamento no Mercado Pago", e);
         }
@@ -117,18 +123,19 @@ public class MercadoPagoAdapter implements MercadoPagoPort {
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString("{}"))
                     .build());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Reembolso no Mercado Pago interrompido", e);
         } catch (Exception e) {
-            throw new IllegalStateException("Falha ao reembolsar pagamento " + mpPaymentId, e);
+            throw new IllegalStateException("Falha ao reembolsar pagamento no Mercado Pago", e);
         }
     }
 
     private JsonNode chamar(HttpRequest request) throws Exception {
         HttpResponse<String> resp = http.send(request, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() >= 300) {
-            throw new IllegalStateException("Mercado Pago respondeu " + resp.statusCode()
-                    + ": " + resp.body());
+            throw new IllegalStateException("Mercado Pago respondeu HTTP " + resp.statusCode());
         }
         return mapper.readTree(resp.body());
     }
 }
-
