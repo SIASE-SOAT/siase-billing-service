@@ -130,11 +130,12 @@ jobs:
         id: ecr
       - name: Configurar EKS e secrets do servico
         env:
+          CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
           NAMESPACE: ${{ secrets.K8S_NAMESPACE_PROD }}
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           set -euo pipefail
-          aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region us-east-1
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region us-east-1
           db_secret_arn=$(aws ssm get-parameter --name "/siase/production/${DB_KEY}/db-secret-arn" --query 'Parameter.Value' --output text)
           db_host=$(aws ssm get-parameter --name "/siase/production/${DB_KEY}/db-endpoint" --query 'Parameter.Value' --output text)
           db_name=$(aws ssm get-parameter --name "/siase/production/${DB_KEY}/db-name" --query 'Parameter.Value' --output text)
