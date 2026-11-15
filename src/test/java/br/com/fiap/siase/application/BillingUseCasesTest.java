@@ -5,7 +5,9 @@ import br.com.fiap.siase.application.ports.MercadoPagoPort;
 import br.com.fiap.siase.application.ports.OrcamentoRepositoryPort;
 import br.com.fiap.siase.application.ports.PagamentoRepositoryPort;
 import br.com.fiap.siase.application.usecase.CompensarOsCanceladaUseCase;
+import br.com.fiap.siase.application.usecase.ConsultarBillingUseCase;
 import br.com.fiap.siase.application.usecase.GerarOrcamentoUseCase;
+import br.com.fiap.siase.application.usecase.NaoEncontradoException;
 import br.com.fiap.siase.application.usecase.ProcessarWebhookMercadoPagoUseCase;
 import br.com.fiap.siase.domain.model.*;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -105,6 +107,92 @@ public class BillingUseCasesTest {
         assertEquals(StatusOrcamento.PAGO,
                 orc.buscarPorOsId(osId).orElseThrow().getStatus());
         assertTrue(pub.eventos.contains(EventoBilling.PAGAMENTO_CONFIRMADO));
+    }
+
+    @Test
+    void webhookDuplicadoNaoProcessaPagamentoNovamente() {
+        var orc = new OrcamentoRepoMem();
+        var pag = new PagamentoRepoMem();
+        var mp = new MpFake();
+        var pub = new PubMem();
+        UUID osId = UUID.randomUUID();
+        UUID orcamentoId = UUID.randomUUID();
+        pag.salvar(Pagamento.confirmar(orcamentoId, osId, new BigDecimal("250"), "pay-1"));
+        var uc = new ProcessarWebhookMercadoPagoUseCase(
+                orc, pag, mp, pub, new SimpleMeterRegistry());
+
+        uc.executar("pay-1");
+
+        assertTrue(pub.eventos.isEmpty());
+        assertTrue(orc.dados.isEmpty());
+    }
+
+    @Test
+    void webhookIgnoraPagamentoInexistenteNaoAprovadoOuSemReferencia() {
+        var orc = new OrcamentoRepoMem();
+        var pag = new PagamentoRepoMem();
+        var mp = new MpFake();
+        var uc = new ProcessarWebhookMercadoPagoUseCase(
+                orc, pag, mp, new PubMem(), new SimpleMeterRegistry());
+        mp.pagamentosMp.put("pending", new MercadoPagoPort.StatusMp(
+                "pending", "pending", BigDecimal.TEN, UUID.randomUUID().toString()));
+        mp.pagamentosMp.put("no-reference", new MercadoPagoPort.StatusMp(
+                "no-reference", "approved", BigDecimal.TEN, null));
+
+        uc.executar("missing");
+        uc.executar("pending");
+        uc.executar("no-reference");
+
+        assertTrue(pag.dados.isEmpty());
+        assertTrue(orc.dados.isEmpty());
+    }
+
+    @Test
+    void webhookAprovadoSemOrcamentoFalhaExplicitamente() {
+        var mp = new MpFake();
+        String osId = UUID.randomUUID().toString();
+        mp.pagamentosMp.put("pay-missing-budget", new MercadoPagoPort.StatusMp(
+                "pay-missing-budget", "approved", BigDecimal.TEN, osId));
+        var uc = new ProcessarWebhookMercadoPagoUseCase(
+                new OrcamentoRepoMem(), new PagamentoRepoMem(), mp,
+                new PubMem(), new SimpleMeterRegistry());
+
+        assertThrows(IllegalStateException.class, () -> uc.executar("pay-missing-budget"));
+    }
+
+    @Test
+    void webhookComReferenciaExternaInvalidaFalhaExplicitamente() {
+        var mp = new MpFake();
+        mp.pagamentosMp.put("pay-invalid-reference", new MercadoPagoPort.StatusMp(
+                "pay-invalid-reference", "approved", BigDecimal.TEN, "not-a-uuid"));
+        var uc = new ProcessarWebhookMercadoPagoUseCase(
+                new OrcamentoRepoMem(), new PagamentoRepoMem(), mp,
+                new PubMem(), new SimpleMeterRegistry());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> uc.executar("pay-invalid-reference"));
+    }
+
+    @Test
+    void consultaBillingRetornaRegistrosEIndicaQuandoNaoEncontrados() {
+        var orc = new OrcamentoRepoMem();
+        var pag = new PagamentoRepoMem();
+        UUID osId = UUID.randomUUID();
+        Orcamento orcamento = Orcamento.criar(osId, "OS-TEST123", new BigDecimal("250"));
+        orc.salvar(orcamento);
+        Pagamento pagamento = Pagamento.confirmar(
+                orcamento.getId(), osId, new BigDecimal("250"), "pay-1");
+        pag.salvar(pagamento);
+        var uc = new ConsultarBillingUseCase(orc, pag);
+
+        assertSame(orcamento, uc.orcamentoDaOs(osId));
+        assertSame(pagamento, uc.pagamentoDaOs(osId));
+        assertSame(pagamento, uc.pagamentoPorId(pagamento.getId()));
+
+        UUID inexistente = UUID.randomUUID();
+        assertThrows(NaoEncontradoException.class, () -> uc.orcamentoDaOs(inexistente));
+        assertThrows(NaoEncontradoException.class, () -> uc.pagamentoDaOs(inexistente));
+        assertThrows(NaoEncontradoException.class, () -> uc.pagamentoPorId(inexistente));
     }
 
     @Test
