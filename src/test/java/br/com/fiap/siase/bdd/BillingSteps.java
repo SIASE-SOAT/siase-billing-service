@@ -66,7 +66,7 @@ public class BillingSteps {
             .executar(EventoBilling.de(tipo, osId, "OS-BDD1", null));
   }
 
-  @Então("um orçamento é gerado com preferência Mercado Pago")
+  @Então("um orçamento é gerado com QR Code Pix Mercado Pago")
   public void orcamentoComPreferencia() {
     var o = orc.buscarPorOsId(osId).orElseThrow();
     assertNotNull(o.getPreferenciaMpId());
