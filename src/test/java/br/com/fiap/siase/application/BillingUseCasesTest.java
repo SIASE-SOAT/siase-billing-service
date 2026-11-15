@@ -42,8 +42,8 @@ public class BillingUseCasesTest {
     public static class MpFake implements MercadoPagoPort {
         public Map<String, StatusMp> pagamentosMp = new HashMap<>();
         public List<String> reembolsos = new ArrayList<>();
-        public Preferencia criarPreferencia(Orcamento o, BigDecimal v, String cb) {
-            return new Preferencia("pref-1", "https://mp.test/checkout/pref-1");
+        public PagamentoPix criarPagamentoPix(Orcamento o, BigDecimal v, String cb) {
+            return new PagamentoPix("pay-1", "pix-copia-e-cola-1", "cXItY29kZS0x");
         }
         public StatusMp consultarPagamento(String id) { return pagamentosMp.get(id); }
         public void reembolsar(String mpPaymentId) { reembolsos.add(mpPaymentId); }
