@@ -5,6 +5,7 @@ metadata:
   labels:
     app: siase-billing-service
 spec:
+  type: LoadBalancer
   replicas: 2
   selector:
     matchLabels:
@@ -46,7 +47,9 @@ spec:
             - name: MERCADOPAGO_MOCK
               value: "false"
             - name: BILLING_PUBLIC_URL
-              value: "https://billing.siase.example.com"   # URL pública p/ webhook MP
+              value: "http://ae4106d29cd87435a9466c8ee77686b0-839243453.us-east-1.elb.amazonaws.com"   # LB público p/ webhook MP
+            - name: MERCADOPAGO_PAYER_EMAIL
+              value: "pagamento@siase.com.br"   # formato válido p/ payer do Pix
             - name: AWS_REGION
               value: us-east-1
             - name: SQS_BILLING_URL
