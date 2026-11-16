@@ -15,5 +15,5 @@ WORKDIR /app
 RUN useradd -r -u 1001 siase && chown -R siase /app
 USER siase
 COPY --from=build /app/app.jar app.jar
-EXPOSE 8081
+EXPOSE 8082
 ENTRYPOINT ["java", "-jar", "app.jar"]
