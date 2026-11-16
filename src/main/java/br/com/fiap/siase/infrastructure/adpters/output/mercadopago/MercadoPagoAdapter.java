@@ -41,14 +41,15 @@ public class MercadoPagoAdapter implements MercadoPagoPort {
     private final String payerEmail;
 
 
-    public MercadoPagoAdapter(ObjectMapper mapper,
-                              @Value("${app.mercadopago.access-token}") String accessToken,
-                              @Value("${app.mercadopago.mock:false}") boolean mock,
-                              @Value("${app.mercadopago.payer-email:pagamento@siase.com.br}") String payerEmail, String payerEmail1) {
+    public MercadoPagoAdapter(
+            ObjectMapper mapper,
+            @Value("${app.mercadopago.access-token}") String accessToken,
+            @Value("${app.mercadopago.mock:false}") boolean mock,
+            @Value("${app.mercadopago.payer-email:pagamento@siase.com.br}") String payerEmail) {
         this.mapper = mapper;
         this.accessToken = accessToken;
         this.mock = mock;
-      this.payerEmail = payerEmail1;
+        this.payerEmail = payerEmail;
     }
 
     @Override
