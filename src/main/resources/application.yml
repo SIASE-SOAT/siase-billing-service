@@ -32,6 +32,7 @@ app:
   mercadopago:
     access-token: ${MERCADOPAGO_ACCESS_TOKEN:}
     mock: ${MERCADOPAGO_MOCK:true}    # true em dev — desligar em prod
+    payer-email: ${MERCADOPAGO_PAYER_EMAIL:pagamento@siase.com.br}
   jwt:
     secret: ${JWT_SECRET:dev-secret-change-me}
 

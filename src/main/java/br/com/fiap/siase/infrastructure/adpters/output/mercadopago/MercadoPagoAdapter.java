@@ -38,13 +38,17 @@ public class MercadoPagoAdapter implements MercadoPagoPort {
     private final ObjectMapper mapper;
     private final String accessToken;
     private final boolean mock;
+    private final String payerEmail;
+
 
     public MercadoPagoAdapter(ObjectMapper mapper,
                               @Value("${app.mercadopago.access-token}") String accessToken,
-                              @Value("${app.mercadopago.mock:false}") boolean mock) {
+                              @Value("${app.mercadopago.mock:false}") boolean mock,
+                              @Value("${app.mercadopago.payer-email:pagamento@siase.com.br}") String payerEmail, String payerEmail1) {
         this.mapper = mapper;
         this.accessToken = accessToken;
         this.mock = mock;
+      this.payerEmail = payerEmail1;
     }
 
     @Override
@@ -62,7 +66,7 @@ public class MercadoPagoAdapter implements MercadoPagoPort {
                     "payment_method_id", "pix",
                     "external_reference", orcamento.getOsId().toString(),
                     "notification_url", callbackUrl + "/api/billing/webhook/mercadopago",
-                    "payer", java.util.Map.of("email", "cliente@siase.local")));
+                    "payer", java.util.Map.of("email", payerEmail)));
 
             JsonNode resp = chamar(HttpRequest.newBuilder(URI.create(BASE + "/v1/payments"))
                     .header("Authorization", "Bearer " + accessToken)
