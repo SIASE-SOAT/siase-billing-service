@@ -5,7 +5,6 @@ metadata:
   labels:
     app: siase-billing-service
 spec:
-  type: LoadBalancer
   replicas: 2
   selector:
     matchLabels:
@@ -71,6 +70,7 @@ kind: Service
 metadata:
   name: siase-billing-service
 spec:
+  type: LoadBalancer
   selector:
     app: siase-billing-service
   ports:
