@@ -1,45 +1,51 @@
 package br.com.fiap.siase.domain.model;
 
-import br.com.fiap.siase.domain.enums.StatusPagamento;
-import br.com.fiap.siase.domain.exception.BusinessException;
-import lombok.*;
-
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Pagamento {
-    private UUID id;
-    private String osId;
-    private String osNumero;
-    private String clienteEmail;
-    private BigDecimal valor;
-    private String formaPagamento;
-    private String mercadoPagoPaymentId;
-    @Builder.Default
-    private StatusPagamento status = StatusPagamento.PENDENTE;
-    private LocalDateTime dataPagamento;
-    private LocalDateTime criadoEm;
-    private LocalDateTime atualizadoEm;
 
-    public void confirmar(String mpPaymentId) {
-        if (this.status != StatusPagamento.PENDENTE)
-            throw new BusinessException("Apenas pagamentos pendentes podem ser confirmados.");
-        this.status = StatusPagamento.PAGO;
-        this.mercadoPagoPaymentId = mpPaymentId;
-        this.dataPagamento = LocalDateTime.now();
+    private final UUID id;
+    private final UUID orcamentoId;
+    private final UUID osId;
+    private final BigDecimal valor;
+    private String mpPaymentId;
+    private StatusPagamento status;
+    private final Instant criadoEm;
+    private Instant atualizadoEm;
+
+    public Pagamento(UUID id, UUID orcamentoId, UUID osId, BigDecimal valor,
+                     String mpPaymentId, StatusPagamento status,
+                     Instant criadoEm, Instant atualizadoEm) {
+        this.id = id;
+        this.orcamentoId = orcamentoId;
+        this.osId = osId;
+        this.valor = valor;
+        this.mpPaymentId = mpPaymentId;
+        this.status = status;
+        this.criadoEm = criadoEm;
+        this.atualizadoEm = atualizadoEm;
     }
 
-    public void marcarFalha() {
-        if (this.status != StatusPagamento.PENDENTE)
-            throw new BusinessException("Apenas pagamentos pendentes podem ser marcados como falha.");
-        this.status = StatusPagamento.FALHOU;
+    public static Pagamento confirmar(UUID orcamentoId, UUID osId,
+                                      BigDecimal valor, String mpPaymentId) {
+        Instant agora = Instant.now();
+        return new Pagamento(UUID.randomUUID(), orcamentoId, osId, valor,
+                mpPaymentId, StatusPagamento.CONFIRMADO, agora, agora);
     }
 
-    public void cancelar() {
-        if (this.status == StatusPagamento.PAGO)
-            throw new BusinessException("Pagamento já confirmado não pode ser cancelado.");
-        this.status = StatusPagamento.CANCELADO;
+    public void reembolsar() {
+        this.status = StatusPagamento.REEMBOLSADO;
+        this.atualizadoEm = Instant.now();
     }
+
+    public UUID getId() { return id; }
+    public UUID getOrcamentoId() { return orcamentoId; }
+    public UUID getOsId() { return osId; }
+    public BigDecimal getValor() { return valor; }
+    public String getMpPaymentId() { return mpPaymentId; }
+    public StatusPagamento getStatus() { return status; }
+    public Instant getCriadoEm() { return criadoEm; }
+    public Instant getAtualizadoEm() { return atualizadoEm; }
 }

@@ -1,34 +1,24 @@
-CREATE TABLE IF NOT EXISTS orcamentos (
-    id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    os_id                       VARCHAR(36)    NOT NULL UNIQUE,
-    os_numero                   VARCHAR(30)    NOT NULL,
-    cliente_id                  VARCHAR(36)    NOT NULL,
-    cliente_nome                VARCHAR(255)   NOT NULL,
-    cliente_email               VARCHAR(255),
-    valor                       NUMERIC(10,2)  NOT NULL,
-    status                      VARCHAR(20)    NOT NULL DEFAULT 'PENDENTE',
-    link_pagamento              VARCHAR(500),
-    mercado_pago_preference_id  VARCHAR(100),
-    criado_em                   TIMESTAMP      NOT NULL DEFAULT NOW(),
-    atualizado_em               TIMESTAMP      NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_status_orc CHECK (status IN ('PENDENTE','APROVADO','RECUSADO','CANCELADO'))
+CREATE TABLE orcamentos (
+    id               UUID PRIMARY KEY,
+    os_id            UUID          NOT NULL UNIQUE,
+    numero_os        VARCHAR(32)   NOT NULL,
+    valor            NUMERIC(12,2) NOT NULL,
+    status           VARCHAR(32)   NOT NULL,
+    preferencia_mp_id VARCHAR(64),
+    link_pagamento   VARCHAR(512),
+    criado_em        TIMESTAMPTZ   NOT NULL,
+    atualizado_em    TIMESTAMPTZ   NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS pagamentos (
-    id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    os_id                       VARCHAR(36)    NOT NULL,
-    os_numero                   VARCHAR(30)    NOT NULL,
-    cliente_email               VARCHAR(255),
-    valor                       NUMERIC(10,2)  NOT NULL,
-    forma_pagamento             VARCHAR(50),
-    mercado_pago_payment_id     VARCHAR(100)   UNIQUE,
-    status                      VARCHAR(20)    NOT NULL DEFAULT 'PENDENTE',
-    data_pagamento              TIMESTAMP,
-    criado_em                   TIMESTAMP      NOT NULL DEFAULT NOW(),
-    atualizado_em               TIMESTAMP      NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_status_pag CHECK (status IN ('PENDENTE','PAGO','FALHOU','CANCELADO'))
+CREATE TABLE pagamentos (
+    id            UUID PRIMARY KEY,
+    orcamento_id  UUID          NOT NULL REFERENCES orcamentos(id),
+    os_id         UUID          NOT NULL,
+    valor         NUMERIC(12,2) NOT NULL,
+    mp_payment_id VARCHAR(64)   UNIQUE,
+    status        VARCHAR(32)   NOT NULL,
+    criado_em     TIMESTAMPTZ   NOT NULL,
+    atualizado_em TIMESTAMPTZ   NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_orcamentos_os_id ON orcamentos(os_id);
-CREATE INDEX IF NOT EXISTS idx_pagamentos_os_id ON pagamentos(os_id);
-CREATE INDEX IF NOT EXISTS idx_pagamentos_mp_id ON pagamentos(mercado_pago_payment_id);
+CREATE INDEX idx_pagamentos_os ON pagamentos (os_id);
