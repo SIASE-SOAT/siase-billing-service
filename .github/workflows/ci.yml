@@ -83,8 +83,10 @@ jobs:
   docker:
     name: Docker build & push (ECR)
     runs-on: ubuntu-latest
-    needs: [test, sonar]
+    needs: [ test, sonar ]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
     permissions:
       contents: read
     steps:
@@ -115,8 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: docker
     environment:
-      name: production   # mesmo environment da Fase 3 — configurar required reviewers
-      url: https://github.com/${{ github.repository }}/actions
+      name: production
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -126,12 +127,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: us-east-1
+
+      - name: Diagnosticar conta e cluster AWS
+        env:
+          CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+        run: |
+          set -euo pipefail
+          echo "Cluster configurado: [$CLUSTER_NAME]"
+          aws sts get-caller-identity
+          aws eks list-clusters --region us-east-1
+          aws eks describe-cluster \
+            --name "$CLUSTER_NAME" \
+            --region us-east-1 \
+            --query 'cluster.name' \
+            --output text
+
       - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
         id: ecr
+
       - name: Configurar EKS e secrets do servico
         env:
-          CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
-          NAMESPACE: ${{ secrets.K8S_NAMESPACE_PROD }}
+          CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+          NAMESPACE: ${{ vars.K8S_NAMESPACE_PROD }}
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           set -euo pipefail
@@ -146,6 +163,7 @@ jobs:
           jwt_secret=$(jq -er .secret <<<"$jwt_json")
           kubectl create secret generic "${SERVICE_NAME}-db" -n "$NAMESPACE" --from-literal=host="$db_host" --from-literal=username="$db_user" --from-literal=password="$db_password" --dry-run=client -o yaml | kubectl apply -f -
           kubectl create secret generic siase-jwt -n "$NAMESPACE" --from-literal=secret="$jwt_secret" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic siase-aws-creds -n "$NAMESPACE" --from-literal=AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" --from-literal=AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" --from-literal=AWS_SESSION_TOKEN="$AWS_SESSION_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
           mp_json=$(aws secretsmanager get-secret-value --secret-id siase/production/mercado-pago --query SecretString --output text)
           mp_token=$(jq -er .accessToken <<<"$mp_json")
           kubectl create secret generic siase-mercadopago -n "$NAMESPACE" --from-literal=access-token="$mp_token" --dry-run=client -o yaml | kubectl apply -f -
