@@ -130,7 +130,7 @@ jobs:
 
       - name: Diagnosticar conta e cluster AWS
         env:
-          CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+          CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
         run: |
           set -euo pipefail
           echo "Cluster configurado: [$CLUSTER_NAME]"
@@ -147,8 +147,8 @@ jobs:
 
       - name: Configurar EKS e secrets do servico
         env:
-          CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
-          NAMESPACE: ${{ secrets.K8S_NAMESPACE_PROD }}
+          CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+          NAMESPACE: ${{ vars.K8S_NAMESPACE_PROD }}
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           set -euo pipefail
@@ -163,6 +163,7 @@ jobs:
           jwt_secret=$(jq -er .secret <<<"$jwt_json")
           kubectl create secret generic "${SERVICE_NAME}-db" -n "$NAMESPACE" --from-literal=host="$db_host" --from-literal=username="$db_user" --from-literal=password="$db_password" --dry-run=client -o yaml | kubectl apply -f -
           kubectl create secret generic siase-jwt -n "$NAMESPACE" --from-literal=secret="$jwt_secret" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic siase-aws-creds -n "$NAMESPACE" --from-literal=AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" --from-literal=AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" --from-literal=AWS_SESSION_TOKEN="$AWS_SESSION_TOKEN" --dry-run=client -o yaml | kubectl apply -f -
           mp_json=$(aws secretsmanager get-secret-value --secret-id siase/production/mercado-pago --query SecretString --output text)
           mp_token=$(jq -er .accessToken <<<"$mp_json")
           kubectl create secret generic siase-mercadopago -n "$NAMESPACE" --from-literal=access-token="$mp_token" --dry-run=client -o yaml | kubectl apply -f -

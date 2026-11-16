@@ -23,6 +23,9 @@ spec:
           image: ECR_REGISTRY/IMAGE_NAME:IMAGE_TAG
           ports:
             - containerPort: 8082
+          envFrom:
+            - secretRef:
+                name: siase-aws-creds
           env:
             - name: ENVIRONMENT
               value: "prod"
@@ -55,7 +58,7 @@ spec:
             initialDelaySeconds: 15
           livenessProbe:
             httpGet: { path: /actuator/health/liveness, port: 8082 }
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
           resources:
             requests: { cpu: 100m, memory: 256Mi }
             limits:   { cpu: 500m, memory: 512Mi }
