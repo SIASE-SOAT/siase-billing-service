@@ -11,7 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Consumer OS_CRIADA: gera orçamento + preferência Mercado Pago e publica
@@ -61,6 +62,8 @@ public class GerarOrcamentoUseCase {
         EventoBilling update = EventoBilling.de(EventoBilling.ORCAMENTO_GERADO,
                 orcamento.getOsId(), orcamento.getNumeroOs(),
                 "{\"orcamentoId\":\"" + orcamento.getId()
+                        + "\",\"valor\":" + valor.toPlainString()
+                        + ",\"paymentId\":\"" + pagamento.mpPaymentId()
                         + "\",\"qrCodePix\":\"" + pagamento.qrCode()
                         + "\",\"qrCodePixBase64\":\"" + pagamento.qrCodeBase64() + "\"}");
         publicador.publicarParaOs(update);
@@ -69,11 +72,11 @@ public class GerarOrcamentoUseCase {
     }
 
     private BigDecimal valorDoOrcamento(EventoBilling evento) {
-        // payload opcional do evento pode trazer {"valor": X}
-        if (evento.payload() != null && evento.payload().contains("valor")) {
-            String digits = evento.payload().replaceAll("[^0-9.]", "");
-            if (!digits.isBlank()) {
-                return new BigDecimal(digits);
+        if (evento.payload() != null) {
+            Matcher matcher = Pattern.compile("\\\"valorOrcamento\\\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)")
+                    .matcher(evento.payload());
+            if (matcher.find()) {
+                return new BigDecimal(matcher.group(1));
             }
         }
         return new BigDecimal("250.00");
@@ -84,4 +87,3 @@ public class GerarOrcamentoUseCase {
                 "servico", "billing", "evento", evento, "direcao", "produzido").increment();
     }
 }
-
