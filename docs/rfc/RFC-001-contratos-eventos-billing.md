@@ -1,7 +1,7 @@
 # RFC-001 — Contratos de Eventos SQS do Billing Service
 
 **Status:** Aprovado
-**Data:** 2025-01
+**Data:** 2026-11
 
 ## Resumo
 
