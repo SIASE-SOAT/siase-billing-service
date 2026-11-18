@@ -1,9 +1,9 @@
 # siase-billing-service — SIASE Fase 4
 
 Microsserviço de **Orçamentos e Pagamentos**: gera orçamento a partir de OS
-criada, integra com **Mercado Pago** para o link de pagamento e confirma o
-pagamento via webhook. Participa do **Saga coreografado via AWS SQS**
-(ver `docs/adr/ADR-001`).
+criada, integra com **Mercado Pago** para pagamento via **Pix com QR Code
+dinâmico** e confirma o pagamento via webhook. Participa do **Saga
+coreografado via AWS SQS** (ver `docs/adr/ADR-001`).
 
 ## Stack
 
@@ -21,11 +21,12 @@ pagamento via webhook. Participa do **Saga coreografado via AWS SQS**
 ## Fluxo de pagamento
 
 ```
-OS_CRIADA (SQS) → GerarOrcamentoUC → preferência Mercado Pago
+OS_CRIADA (SQS) → GerarOrcamentoUC → POST /v1/payments (Pix)
                                         │
-                              link de pagamento (init_point)
+                              qr_code + qr_code_base64
+                              (Pix copia e cola + QR dinâmico)
                                         │
-                              cliente paga
+                              cliente paga via Pix
                                         │
                               webhook MP → ProcessarWebhookUC
                                         │
@@ -58,7 +59,12 @@ Swagger UI: `/api/swagger-ui.html`
 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`,
 `AWS_REGION`, `SQS_BILLING_URL`, `SQS_OS_UPDATES_URL`,
 `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_MOCK` (true em dev),
+`MERCADOPAGO_PAYER_EMAIL` (email do pagador para a API Pix),
 `BILLING_PUBLIC_URL` (URL pública para o webhook MP), `ENVIRONMENT`.
+
+## Porta
+
+**8082** (management/actuator em `/actuator`)
 
 ## Testes
 
@@ -70,4 +76,6 @@ mvn clean verify
 
 ## Documentação
 
-- `docs/adr/ADR-001` — Saga coreografado + decisões Mercado Pago
+- [ADR-001 — Saga Coreografado e integração Mercado Pago](docs/adr/ADR-001-billing-saga.md)
+- [RFC-001 — Contratos de Eventos SQS do Billing Service](docs/rfc/RFC-001-contratos-eventos-billing.md)
+- [Diagramas de Sequência](docs/diagramas-sequencia.md)
