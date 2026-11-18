@@ -1,92 +1,97 @@
 # RFC-001 — Contratos de Eventos SQS do Billing Service
 
-**Status:** Aprovado  
+**Status:** Aprovado
 **Data:** 2025-01
 
 ## Resumo
 
-Define os eventos que o Billing Service consome e produz, e o contrato de integração com o Mercado Pago.
+Define os eventos que o Billing Service consome e produz. O envelope de todos os eventos segue o padrão do Saga (ver RFC-001 do os-service): `tipoEvento`, `osId`, `numeroOs`, `payload` (JSON string opcional), `ocorridoEm`.
 
-## Eventos Consumidos
+## Eventos Consumidos (fila: `siase-billing-queue`)
 
-### OS_CRIADA (fila: `siase-billing-queue`)
+### OS_CRIADA
 ```json
 {
-  "tipo": "OS_CRIADA",
+  "tipoEvento": "OS_CRIADA",
   "osId": "uuid",
-  "osNumero": "OS-20250101-ABC123",
-  "clienteId": "uuid",
-  "clienteNome": "João Silva",
-  "clienteEmail": "joao@email.com",
-  "veiculoId": "uuid",
-  "total": "350.00",
-  "status": "RECEBIDA"
+  "numeroOs": "OS-XXXXXXXX",
+  "payload": "{\"clienteNome\":\"João Silva\",\"veiculo\":\"Fiat Uno\",\"valorOrcamento\":350.00,\"servicos\":[{\"descricao\":\"Troca de óleo\",\"preco\":80.00}]}",
+  "ocorridoEm": "2025-01-01T10:00:00Z"
 }
 ```
-**Ação:** Gerar orçamento + criar preferência no Mercado Pago.
+**Ação:** Gerar orçamento + criar pagamento Pix no Mercado Pago. Idempotente: `os_id` UNIQUE em `orcamentos`.
 
-### OS_CANCELADA (fila: `siase-billing-queue`)
+### OS_CANCELADA
 ```json
 {
-  "tipo": "OS_CANCELADA",
+  "tipoEvento": "OS_CANCELADA",
   "osId": "uuid",
-  "osNumero": "OS-20250101-ABC123",
-  "motivo": "Cliente desistiu"
+  "numeroOs": "OS-XXXXXXXX",
+  "payload": null,
+  "ocorridoEm": "2025-01-01T10:00:00Z"
 }
 ```
-**Ação:** Cancelar orçamento e pagamento pendentes (compensação Saga).
+**Ação:** Cancelar orçamento e pagamento pendentes (compensação Saga). Se pagamento já confirmado, emite reembolso no MP e publica `PAGAMENTO_CANCELADO`.
 
-### ORCAMENTO_RECUSADO (fila: `siase-billing-queue`)
+### ORCAMENTO_RECUSADO
 ```json
 {
-  "tipo": "ORCAMENTO_RECUSADO",
+  "tipoEvento": "ORCAMENTO_RECUSADO",
   "osId": "uuid",
-  "osNumero": "OS-20250101-ABC123"
+  "numeroOs": "OS-XXXXXXXX",
+  "payload": null,
+  "ocorridoEm": "2025-01-01T10:00:00Z"
 }
 ```
-**Ação:** Cancelar orçamento.
+**Ação:** Cancelar orçamento (mesma lógica de compensação do `OS_CANCELADA`).
 
-## Eventos Produzidos
+## Eventos Produzidos (fila: `siase-os-updates-queue`)
 
-### ORCAMENTO_GERADO (fila: `siase-os-updates-queue`)
+### ORCAMENTO_GERADO
 ```json
 {
-  "tipo": "ORCAMENTO_GERADO",
-  "osNumero": "OS-20250101-ABC123",
-  "osId": "uuid"
-}
-```
-**Efeito:** OS Service avança OS para `AGUARDANDO_APROVACAO`.
-
-### PAGAMENTO_CONFIRMADO (fila: `siase-os-updates-queue`)
-```json
-{
-  "tipo": "PAGAMENTO_CONFIRMADO",
-  "osNumero": "OS-20250101-ABC123",
+  "tipoEvento": "ORCAMENTO_GERADO",
   "osId": "uuid",
-  "valor": "350.00",
-  "formaPagamento": "pix"
+  "numeroOs": "OS-XXXXXXXX",
+  "payload": "{\"orcamentoId\":\"uuid\",\"valor\":350.00,\"paymentId\":\"pay-mp-123\",\"qrCodePix\":\"00020101...\",\"qrCodePixBase64\":\"bW9ja...\"}",
+  "ocorridoEm": "2025-01-01T10:00:00Z"
 }
 ```
-**Efeito:** OS Service avança OS para `ENTREGUE`.
+**Efeito:** os-service avança OS para `AGUARDANDO_APROVACAO`.
 
-### PAGAMENTO_FALHOU (fila: `siase-os-updates-queue`)
+### PAGAMENTO_CONFIRMADO
 ```json
 {
-  "tipo": "PAGAMENTO_FALHOU",
-  "osNumero": "OS-20250101-ABC123",
-  "osId": "uuid"
+  "tipoEvento": "PAGAMENTO_CONFIRMADO",
+  "osId": "uuid",
+  "numeroOs": "OS-XXXXXXXX",
+  "payload": "{\"pagamentoId\":\"uuid\"}",
+  "ocorridoEm": "2025-01-01T10:00:00Z"
 }
 ```
-**Efeito:** OS permanece em `FINALIZADA` aguardando nova tentativa.
+**Efeito:** os-service avança OS para `ENTREGUE`.
+
+### PAGAMENTO_CANCELADO
+```json
+{
+  "tipoEvento": "PAGAMENTO_CANCELADO",
+  "osId": "uuid",
+  "numeroOs": "OS-XXXXXXXX",
+  "payload": null,
+  "ocorridoEm": "2025-01-01T10:00:00Z"
+}
+```
+**Efeito:** os-service registra no histórico; OS já está `CANCELADA`.
 
 ## Idempotência
 
-O campo `mercado_pago_payment_id` é UNIQUE no banco. Processar o mesmo webhook duas vezes não cria duplicatas.
+- `os_id` é UNIQUE na tabela `orcamentos` — `OS_CRIADA` duplicado retorna o orçamento existente sem chamar o MP novamente.
+- `mp_payment_id` é UNIQUE na tabela `pagamentos` — webhook reenviado pelo MP é ignorado (lookup por `mpPaymentId` antes de processar).
 
 ## Webhook Mercado Pago
 
 - Endpoint: `POST /api/billing/webhook/mercadopago`
-- Público (sem JWT) — validação feita consultando o pagamento diretamente na API do MP
-- Apenas notificações com `type == "payment"` são processadas
-- Status `approved` confirma o pagamento; demais status são ignorados aguardando aprovação
+- Público (sem JWT) — o MP exige resposta 200 imediata
+- Aceita dois formatos: IPN (`?type=payment&id=...`) e novo formato (body JSON com `type` e `data.id`)
+- Apenas pagamentos com `status == "approved"` são confirmados; demais são ignorados
+- Em produção: validar assinatura `x-signature` do MP (HMAC) antes de processar — registrado como melhoria no backlog
